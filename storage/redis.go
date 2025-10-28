@@ -96,6 +96,11 @@ func (r *RedisClient) GetKeys() *Keys {
 	return r.keys
 }
 
+// GetContext - возвращает контекст клиента
+func (r *RedisClient) GetContext() context.Context {
+	return r.ctx
+}
+
 // Close - закрывает соединение с Redis
 func (r *RedisClient) Close() error {
 	r.logger.Info("Закрытие соединения с Redis...")

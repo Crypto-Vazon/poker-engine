@@ -238,15 +238,16 @@ func (rm *RoomMonitor) handleGameStart(clubID, roomID string, playersCount int) 
 	pipe := rm.redis.Pipeline()
 	roomInfoKey := rm.redis.GetKeys().RoomInfo(clubID, roomID)
 	gameStateKey := rm.redis.GetKeys().GameState(clubID, roomID)
+	ctx := rm.redis.GetContext()
 
-	pipe.HSet(rm.redis.GetClient().Context(), roomInfoKey, "status", "gaming")
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "phase", "pre_flop")
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "game_id", gameID)
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "started_at", startedAt)
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "pot", 0)
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "current_bet", 0)
+	pipe.HSet(ctx, roomInfoKey, "status", "gaming")
+	pipe.HSet(ctx, gameStateKey, "phase", "pre_flop")
+	pipe.HSet(ctx, gameStateKey, "game_id", gameID)
+	pipe.HSet(ctx, gameStateKey, "started_at", startedAt)
+	pipe.HSet(ctx, gameStateKey, "pot", 0)
+	pipe.HSet(ctx, gameStateKey, "current_bet", 0)
 
-	_, err := pipe.Exec(rm.redis.GetClient().Context())
+	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return err
 	}

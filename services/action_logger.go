@@ -277,7 +277,7 @@ func (al *ActionLogger) TrimHistory(clubID, roomID string, keepLast int64) error
 
 	// LTRIM оставляет только элементы в указанном диапазоне
 	// -keepLast означает "последние keepLast элементов"
-	err := al.redis.GetClient().LTrim(al.redis.GetClient().Context(), actionsKey, -keepLast, -1).Err()
+	err := al.redis.GetClient().LTrim(al.redis.GetContext(), actionsKey, -keepLast, -1).Err()
 	if err != nil {
 		al.logger.Errorf("Ошибка при обрезке истории комнаты %s:%s: %v", clubID, roomID, err)
 		return err
