@@ -80,25 +80,26 @@ func (h *GameStopHandler) Handle(clubID, roomID, previousPhase, reason string) e
 	// Ключи для обновления
 	roomInfoKey := h.redis.GetKeys().RoomInfo(clubID, roomID)
 	gameStateKey := h.redis.GetKeys().GameState(clubID, roomID)
+	ctx := h.redis.GetContext()
 
 	// 1. Возвращаем статус комнаты в "waiting"
-	pipe.HSet(h.redis.GetClient().Context(), roomInfoKey, "status", string(models.RoomStatusWaiting))
+	pipe.HSet(ctx, roomInfoKey, "status", string(models.RoomStatusWaiting))
 
 	// 2. Сбрасываем состояние игры
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "phase", string(models.GamePhaseWaiting))
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "game_id", "")
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "started_at", "")
+	pipe.HSet(ctx, gameStateKey, "phase", string(models.GamePhaseWaiting))
+	pipe.HSet(ctx, gameStateKey, "game_id", "")
+	pipe.HSet(ctx, gameStateKey, "started_at", "")
 
 	// 3. Сбрасываем игровые параметры
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "pot", 0)
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "current_bet", 0)
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "current_player_position", "")
+	pipe.HSet(ctx, gameStateKey, "pot", 0)
+	pipe.HSet(ctx, gameStateKey, "current_bet", 0)
+	pipe.HSet(ctx, gameStateKey, "current_player_position", "")
 
 	// 4. Очищаем общие карты
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "community_cards", "[]")
+	pipe.HSet(ctx, gameStateKey, "community_cards", "[]")
 
 	// Выполняем все команды
-	_, err = pipe.Exec(h.redis.GetClient().Context())
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		h.logger.Errorf("Ошибка при обновлении состояния игры в Redis: %v", err)
 		return fmt.Errorf("ошибка обновления Redis: %w", err)

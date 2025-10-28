@@ -11,34 +11,15 @@ import (
 
 // RoomMonitor - сервис для мониторинга всех комнат
 type RoomMonitor struct {
-	// redis - клиент для работы с Redis
-	redis *storage.RedisClient
-
-	// config - конфигурация движка
-	config *config.EngineConfig
-
-	// logger - логгер для вывода сообщений
-	logger *utils.Logger
-
-	// ctx - контекст для управления жизненным циклом
-	ctx context.Context
-
-	// cancelFunc - функция для отмены контекста
-	cancelFunc context.CancelFunc
-
-	// gameStateService - сервис для работы с состоянием игры
+	redis            *storage.RedisClient
+	config           *config.EngineConfig
+	logger           *utils.Logger
+	ctx              context.Context
+	cancelFunc       context.CancelFunc
 	gameStateService *GameStateService
-
-	// actionLogger - сервис для записи действий
-	actionLogger *ActionLogger
-
-	// ticker - таймер для периодической проверки
-	ticker *time.Ticker
-
-	// isRunning - флаг работы мониторинга
-	isRunning bool
-
-	// Обработчики вынесены в отдельные функции (без импорта handlers)
+	actionLogger     *ActionLogger
+	ticker           *time.Ticker
+	isRunning        bool
 }
 
 // NewRoomMonitor - создает новый экземпляр RoomMonitor
@@ -48,7 +29,6 @@ func NewRoomMonitor(
 	gameStateService *GameStateService,
 	actionLogger *ActionLogger,
 ) *RoomMonitor {
-	// Создаем контекст с возможностью отмены
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &RoomMonitor{
@@ -75,21 +55,15 @@ func (rm *RoomMonitor) Start() {
 	rm.logger.Infof("Интервал проверки: %v", rm.config.CheckInterval)
 	rm.logger.Infof("Минимум игроков для старта: %d", rm.config.MinPlayersToStart)
 
-	// Создаем ticker для периодической проверки
 	rm.ticker = time.NewTicker(rm.config.CheckInterval)
 	defer rm.ticker.Stop()
 
-	// Выполняем первую проверку сразу (не ждем первого tick)
 	rm.checkAllRooms()
 
-	// Основной цикл мониторинга
 	for {
 		select {
-		// Когда ticker срабатывает - проверяем комнаты
 		case <-rm.ticker.C:
 			rm.checkAllRooms()
-
-		// Когда контекст отменен - завершаем работу
 		case <-rm.ctx.Done():
 			rm.logger.Info("Контекст отменен, останавливаем мониторинг")
 			rm.isRunning = false
@@ -108,7 +82,6 @@ func (rm *RoomMonitor) Stop() {
 	rm.logger.Info("Останавливаем мониторинг комнат...")
 	rm.cancelFunc()
 
-	// Ждем немного, чтобы текущая итерация завершилась
 	time.Sleep(100 * time.Millisecond)
 
 	if rm.ticker != nil {
@@ -126,46 +99,34 @@ func (rm *RoomMonitor) IsRunning() bool {
 
 // checkAllRooms - проверяет все активные комнаты во всех клубах
 func (rm *RoomMonitor) checkAllRooms() {
-	// Получаем паттерн для поиска всех клубов с активными комнатами
 	pattern := rm.redis.GetKeys().ClubRoomsActivePattern()
-
-	// Сканируем Redis по паттерну
 	iter := rm.redis.Scan(pattern)
-
-	// Счетчик проверенных комнат для статистики
 	roomsChecked := 0
 
-	// Проходим по всем найденным ключам
 	for iter.Next(rm.ctx) {
-		clubRoomsKey := iter.Val() // Например: "club:1:rooms:active"
-
-		// Извлекаем clubId из ключа
+		clubRoomsKey := iter.Val()
 		clubID := rm.redis.GetKeys().ExtractClubID(clubRoomsKey)
 		if clubID == "" {
 			rm.logger.Warningf("Не удалось извлечь clubId из ключа: %s", clubRoomsKey)
 			continue
 		}
 
-		// Получаем все активные комнаты этого клуба
 		roomIDs, err := rm.redis.ZRange(clubRoomsKey, 0, -1)
 		if err != nil {
 			rm.logger.Errorf("Ошибка при получении комнат клуба %s: %v", clubID, err)
 			continue
 		}
 
-		// Проверяем каждую комнату
 		for _, roomID := range roomIDs {
 			rm.checkRoom(clubID, roomID)
 			roomsChecked++
 		}
 	}
 
-	// Проверяем, не было ли ошибок при сканировании
 	if err := iter.Err(); err != nil {
 		rm.logger.Errorf("Ошибка при сканировании клубов: %v", err)
 	}
 
-	// Логируем статистику (только если проверили хотя бы одну комнату)
 	if roomsChecked > 0 {
 		rm.logger.Debugf("Проверено комнат: %d", roomsChecked)
 	}
@@ -173,28 +134,23 @@ func (rm *RoomMonitor) checkAllRooms() {
 
 // checkRoom - проверяет состояние конкретной комнаты
 func (rm *RoomMonitor) checkRoom(clubID, roomID string) {
-	// Получаем количество игроков
 	playersCount, err := rm.gameStateService.GetPlayersCount(clubID, roomID)
 	if err != nil {
 		rm.logger.Errorf("Ошибка при получении количества игроков в комнате %s:%s: %v", clubID, roomID, err)
 		return
 	}
 
-	// Получаем текущее состояние игры
 	game, err := rm.gameStateService.GetGameState(clubID, roomID)
 	if err != nil {
 		rm.logger.Errorf("Ошибка при получении состояния игры %s:%s: %v", clubID, roomID, err)
 		return
 	}
 
-	// Если нет данных об игре, пропускаем
 	if game == nil {
 		return
 	}
 
 	currentPhase := game.Phase
-
-	// === ЛОГИКА УПРАВЛЕНИЯ СОСТОЯНИЕМ ИГРЫ ===
 
 	// СЛУЧАЙ 1: Достаточно игроков (≥2) и игра не началась -> ЗАПУСКАЕМ
 	if playersCount >= int64(rm.config.MinPlayersToStart) && currentPhase == "waiting" {
@@ -216,25 +172,19 @@ func (rm *RoomMonitor) checkRoom(clubID, roomID string) {
 		return
 	}
 
-	// СЛУЧАЙ 3: Игра идет нормально -> просто логируем (опционально)
+	// СЛУЧАЙ 3: Игра идет нормально
 	if playersCount >= int64(rm.config.MinPlayersToStart) && currentPhase != "waiting" {
-		// Можно раскомментировать для детального логирования
 		// rm.logger.GameInProgress(clubID, roomID, string(currentPhase), int(playersCount))
 	}
 }
 
-// handleGameStart - внутренняя логика запуска игры (без импорта handlers)
+// handleGameStart - внутренняя логика запуска игры
 func (rm *RoomMonitor) handleGameStart(clubID, roomID string, playersCount int) error {
-	// Логика из GameStartHandler перенесена сюда
 	rm.logger.Infof("Запуск игры в комнате %s:%s", clubID, roomID)
 
-	// Генерируем ID игры
 	gameID := utils.GetCurrentTime().Format("20060102150405") + "_" + clubID + "_" + roomID
-
-	// Текущее время
 	startedAt := utils.GetISO8601Time()
 
-	// Обновляем Redis
 	pipe := rm.redis.Pipeline()
 	roomInfoKey := rm.redis.GetKeys().RoomInfo(clubID, roomID)
 	gameStateKey := rm.redis.GetKeys().GameState(clubID, roomID)
@@ -252,37 +202,34 @@ func (rm *RoomMonitor) handleGameStart(clubID, roomID string, playersCount int) 
 		return err
 	}
 
-	// Логируем
 	rm.actionLogger.LogGameStarted(clubID, roomID, gameID, playersCount)
 	rm.logger.GameStarted(clubID, roomID, gameID, playersCount)
 
 	return nil
 }
 
-// handleGameStop - внутренняя логика остановки игры (без импорта handlers)
+// handleGameStop - внутренняя логика остановки игры
 func (rm *RoomMonitor) handleGameStop(clubID, roomID, previousPhase, reason string) error {
-	// Логика из GameStopHandler перенесена сюда
 	rm.logger.Infof("Остановка игры в комнате %s:%s", clubID, roomID)
 
-	// Обновляем Redis
 	pipe := rm.redis.Pipeline()
 	roomInfoKey := rm.redis.GetKeys().RoomInfo(clubID, roomID)
 	gameStateKey := rm.redis.GetKeys().GameState(clubID, roomID)
+	ctx := rm.redis.GetContext()
 
-	pipe.HSet(rm.redis.GetClient().Context(), roomInfoKey, "status", "waiting")
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "phase", "waiting")
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "game_id", "")
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "started_at", "")
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "pot", 0)
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "current_bet", 0)
-	pipe.HSet(rm.redis.GetClient().Context(), gameStateKey, "community_cards", "[]")
+	pipe.HSet(ctx, roomInfoKey, "status", "waiting")
+	pipe.HSet(ctx, gameStateKey, "phase", "waiting")
+	pipe.HSet(ctx, gameStateKey, "game_id", "")
+	pipe.HSet(ctx, gameStateKey, "started_at", "")
+	pipe.HSet(ctx, gameStateKey, "pot", 0)
+	pipe.HSet(ctx, gameStateKey, "current_bet", 0)
+	pipe.HSet(ctx, gameStateKey, "community_cards", "[]")
 
-	_, err := pipe.Exec(rm.redis.GetClient().Context())
+	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return err
 	}
 
-	// Логируем
 	rm.actionLogger.LogGameStopped(clubID, roomID, previousPhase, reason)
 	rm.logger.GameStopped(clubID, roomID, previousPhase, reason)
 
@@ -291,24 +238,20 @@ func (rm *RoomMonitor) handleGameStop(clubID, roomID, previousPhase, reason stri
 
 // GetStatistics - возвращает статистику мониторинга
 func (rm *RoomMonitor) GetStatistics() map[string]interface{} {
-	stats := map[string]interface{}{
+	return map[string]interface{}{
 		"is_running":      rm.isRunning,
 		"check_interval":  rm.config.CheckInterval.String(),
 		"min_players":     rm.config.MinPlayersToStart,
 		"redis_connected": rm.redis.IsConnected(),
 	}
-
-	return stats
 }
 
 // HealthCheck - проверяет здоровье мониторинга
 func (rm *RoomMonitor) HealthCheck() error {
-	// Проверяем, что мониторинг запущен
 	if !rm.isRunning {
 		return ErrMonitorNotRunning
 	}
 
-	// Проверяем подключение к Redis
 	if err := rm.redis.HealthCheck(); err != nil {
 		return err
 	}
@@ -316,18 +259,17 @@ func (rm *RoomMonitor) HealthCheck() error {
 	return nil
 }
 
-// ForceCheck - принудительно запускает проверку всех комнат (вне расписания)
+// ForceCheck - принудительно запускает проверку всех комнат
 func (rm *RoomMonitor) ForceCheck() {
 	rm.logger.Info("Принудительная проверка всех комнат...")
 	rm.checkAllRooms()
 	rm.logger.Success("Принудительная проверка завершена")
 }
 
-// CheckSpecificRoom - проверяет конкретную комнату (вне общего цикла)
+// CheckSpecificRoom - проверяет конкретную комнату
 func (rm *RoomMonitor) CheckSpecificRoom(clubID, roomID string) error {
 	rm.logger.Infof("Проверка комнаты %s:%s...", clubID, roomID)
 
-	// Проверяем, существует ли комната
 	exists, err := rm.gameStateService.RoomExists(clubID, roomID)
 	if err != nil {
 		return err
@@ -338,14 +280,10 @@ func (rm *RoomMonitor) CheckSpecificRoom(clubID, roomID string) error {
 		return ErrRoomNotFound
 	}
 
-	// Проверяем комнату
 	rm.checkRoom(clubID, roomID)
-
 	rm.logger.Successf("Проверка комнаты %s:%s завершена", clubID, roomID)
 	return nil
 }
-
-// === ОШИБКИ ===
 
 var (
 	ErrMonitorNotRunning = &MonitorError{message: "monitor is not running"}

@@ -97,21 +97,22 @@ func (h *GameStartHandler) Handle(clubID, roomID string, playersCount int) error
 	// Ключи для обновления
 	roomInfoKey := h.redis.GetKeys().RoomInfo(clubID, roomID)
 	gameStateKey := h.redis.GetKeys().GameState(clubID, roomID)
+	ctx := h.redis.GetContext()
 
 	// 1. Обновляем статус комнаты на "gaming"
-	pipe.HSet(h.redis.GetClient().Context(), roomInfoKey, "status", string(models.RoomStatusGaming))
+	pipe.HSet(ctx, roomInfoKey, "status", string(models.RoomStatusGaming))
 
 	// 2. Обновляем состояние игры
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "phase", string(models.GamePhasePreFlop))
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "game_id", gameID)
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "started_at", startedAt)
+	pipe.HSet(ctx, gameStateKey, "phase", string(models.GamePhasePreFlop))
+	pipe.HSet(ctx, gameStateKey, "game_id", gameID)
+	pipe.HSet(ctx, gameStateKey, "started_at", startedAt)
 
 	// Опционально: можно сбросить pot и current_bet (если они не были сброшены ранее)
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "pot", 0)
-	pipe.HSet(h.redis.GetClient().Context(), gameStateKey, "current_bet", 0)
+	pipe.HSet(ctx, gameStateKey, "pot", 0)
+	pipe.HSet(ctx, gameStateKey, "current_bet", 0)
 
 	// Выполняем все команды
-	_, err = pipe.Exec(h.redis.GetClient().Context())
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		h.logger.Errorf("Ошибка при обновлении состояния игры в Redis: %v", err)
 		return fmt.Errorf("ошибка обновления Redis: %w", err)
