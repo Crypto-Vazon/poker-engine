@@ -18,6 +18,8 @@ type RoomMonitor struct {
 	cancelFunc       context.CancelFunc
 	gameStateService *GameStateService
 	actionLogger     *ActionLogger
+	deckManager      *DeckManager
+	cardDealer       *CardDealer
 	ticker           *time.Ticker
 	isRunning        bool
 }
